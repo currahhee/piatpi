@@ -1,0 +1,40 @@
+Here's what changed from v2 → v3:
+
+**Bracketing runs in its own thread now.** The stream never freezes during capture. `bracket_loop()` runs independently as a daemon thread, with a `bracket_lock` to prevent overlapping sets if the interval is shorter than capture time.
+
+**Removed the 3-second shot delay.** The settle frames (now 4 by default) plus a brief 0.3s `BRACKET_POST_SETTLE` pause is all you need. A full 3-shot bracket now takes ~2–4s instead of ~12s.
+
+**No more manual gain boost.** Gain is locked at whatever auto-exposure had settled to before the bracket starts. This avoids the noise bomb from `AnalogueGain: 10.0` + long shutter in v2.
+
+**Added a `relative` bracket mode.** You can switch `BRACKET_MODE = "relative"` to auto-scale from current exposure (useful if lighting conditions change), or keep `"fixed"` for repeatable lab conditions.
+
+**Metadata JSON sidecar.** Each bracket set saves a `.json` file with requested vs. actual exposure, gain, timestamps, and resolution — useful when you're building your training dataset and need to track what the sensor actually did.
+
+**Cleaner startup banner.** Prints all active settings at launch so you can confirm the config at a glance in your Termius terminal.
+
+Drop it on the Pi and test — the stream should stay smooth even while brackets are being captured in the background.
+
+-----------------RECEIVER CODE STARTS HERE
+
+The receiver works but it's pretty bare-bones — no error handling, no FPS counter, no way to know if frames are dropping, and no integration with the MEF pipeline on the server side. Let me build a proper v3 receiver that matches the new sender.Here's what's new over your original receiver:
+
+**Performance monitoring** — rolling FPS counter, JPEG decode time, and bandwidth (kbps) tracked via `StreamStats` with a deque-based sliding window. These show as a green overlay on the video and also print to console every ~5 seconds, so you can catch issues like frame drops or network congestion.
+
+**Keyboard controls** while viewing:
+- `s` — toggle saving every received frame to `~/mef_received/` (useful for building your dataset from the stream)
+- `f` — fullscreen toggle
+- `space` — pause display (frames still received in background, no queue buildup)
+- `r` — reset all counters
+- `q` — quit
+
+**CLI arguments** so you don't have to edit the file every time:
+```bash
+python imagezmq_receiver3.py --ip 192.168.1.14 --port 5555
+python imagezmq_receiver3.py --no-display --save    # headless + save all frames
+```
+
+**`process_frame()` hook** — this is where you'll eventually plug in the MEF fusion and defect detection pipeline. Right now it's a passthrough, but the structure is ready for when you integrate MEFLUT + PatchCore/EfficientAD on the RTX 5060.
+
+**Error handling** — decode failures and receive errors are caught and logged instead of crashing the whole receiver.
+
+Your original receiver was 50 lines and did the job. This one is production-ready and will serve as the foundation for the server-side inference pipeline. Want to start working on the MEF fusion integration next?
