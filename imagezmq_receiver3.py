@@ -236,6 +236,8 @@ def main():
             # Receive frame
             try:
                 name, jpg_buffer = image_hub.recv_jpg()
+                if req_rep:
+                    image_hub.send_reply(b"OK")
             except Exception as e:
                 print(f"[WARN] Receive error: {e}")
                 time.sleep(0.5)
@@ -261,11 +263,14 @@ def main():
 
             # Save to disk if enabled
             if saving:
-                save_count += 1
                 ts = datetime.now().strftime("%Y%m%d_%H%M%S_%f")[:-3]
-                filename = f"frame_{ts}_{save_count:06d}.jpg"
+                filename = f"frame_{ts}_{save_count + 1:06d}.jpg"
                 filepath = os.path.join(save_dir, filename)
-                cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, SAVE_QUALITY])
+                ok = cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, SAVE_QUALITY])
+                if ok:
+                    save_count += 1
+                else:
+                    print(f"[WARN] Failed to save frame: {filepath}")
 
             # Display
             if not headless and not paused:
@@ -334,7 +339,7 @@ def main():
         if not headless:
             cv2.destroyAllWindows()
         print(f"[INFO] Total frames received: {stats.frame_count}")
-        if saving:
+        if save_count > 0:
             print(f"[INFO] Frames saved: {save_count} → {save_dir}")
         print("[INFO] Receiver stopped.")
 
