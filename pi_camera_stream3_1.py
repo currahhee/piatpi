@@ -362,6 +362,7 @@ def capture_bracket_set(cam):
         t_set_start = time.monotonic()
 
         metadata_entries = []
+        saved_count = 0
 
         # Disable AE, lock gain at current auto level — restore is guaranteed
         # by the try/finally below, which now covers the disable call too.
@@ -397,10 +398,16 @@ def capture_bracket_set(cam):
                 # Save image
                 filename = f"{set_id}_{timestamp}_{label}_exp{shutter_us}us.jpg"
                 filepath = os.path.join(BRACKET_SAVE_DIR, filename)
-                cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, BRACKET_JPEG_QUALITY])
+                ok = cv2.imwrite(filepath, frame, [cv2.IMWRITE_JPEG_QUALITY, BRACKET_JPEG_QUALITY])
 
                 actual_exp = actual_meta.get("ExposureTime", shutter_us)
                 actual_gain = actual_meta.get("AnalogueGain", auto_gain)
+
+                if not ok:
+                    print(f"[MEF]   [{i+1}/{len(pairs)}] {label}: FAILED to write {filename}")
+                    continue
+
+                saved_count += 1
                 print(f"[MEF]   [{i+1}/{len(pairs)}] {label}: {filename} "
                       f"(requested={shutter_us}µs, actual={actual_exp}µs, gain={actual_gain:.1f})")
 
@@ -425,7 +432,7 @@ def capture_bracket_set(cam):
                 print(f"[MEF] WARNING: failed to restore AE: {ae_err}")
 
         elapsed = time.monotonic() - t_set_start
-        print(f"[MEF] #{bracket_count} done — {len(pairs)} images in {elapsed:.1f}s")
+        print(f"[MEF] #{bracket_count} done — {saved_count}/{len(pairs)} images in {elapsed:.1f}s")
 
         # Save metadata sidecar (only if we actually captured something)
         if SAVE_METADATA_JSON and metadata_entries:
