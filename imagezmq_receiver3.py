@@ -158,6 +158,17 @@ def draw_osd(frame, stats, pi_name, saving=False, paused=False):
     return frame
 
 
+def coerce_jpg_payload(jpg_buffer):
+    """Normalize imagezmq payloads across pyzmq versions."""
+    if isinstance(jpg_buffer, (bytes, bytearray, memoryview)):
+        payload = jpg_buffer
+    else:
+        payload = getattr(jpg_buffer, "bytes", None)
+        if payload is None:
+            payload = bytes(jpg_buffer)
+    return payload, len(payload)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Frame Processing Hook
 # ═══════════════════════════════════════════════════════════════════════════
@@ -243,12 +254,12 @@ def main():
                 time.sleep(0.5)
                 continue
 
-            jpg_size = jpg_buffer.nbytes
+            jpg_payload, jpg_size = coerce_jpg_payload(jpg_buffer)
 
             # Decode JPEG → BGR
             t_decode = time.monotonic()
             frame = cv2.imdecode(
-                np.frombuffer(jpg_buffer, dtype="uint8"), cv2.IMREAD_COLOR
+                np.frombuffer(jpg_payload, dtype="uint8"), cv2.IMREAD_COLOR
             )
             decode_ms = (time.monotonic() - t_decode) * 1000
 

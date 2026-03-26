@@ -68,7 +68,7 @@ TARGET_FPS = 30
 JPEG_QUALITY = 90
 
 # --- Stream toggles ---
-ENABLE_TCP = True
+ENABLE_TCP = False
 ENABLE_IMAGEZMQ = True
 IMAGEZMQ_SEND_JPG = True
 
