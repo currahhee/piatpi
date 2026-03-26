@@ -52,6 +52,11 @@ import cv2
 from picamera2 import Picamera2
 import imagezmq
 
+try:
+    from libcamera import controls as libcamera_controls
+except ImportError:
+    libcamera_controls = None
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Configuration
 # ═══════════════════════════════════════════════════════════════════════════
@@ -63,9 +68,19 @@ IMAGEZMQ_PORT = 5555
 IMAGEZMQ_REQ_REP = False          # False = PUB/SUB (recommended)
 
 # --- Camera ---
-RESOLUTION = (1280, 720)
+RESOLUTION = (1920, 1080)
 TARGET_FPS = 30
 JPEG_QUALITY = 90
+
+# --- Noise reduction ---
+CAMERA_NOISE_REDUCTION_MODE = "high_quality"   # off | fast | high_quality
+CAMERA_SHARPNESS = 0.7                         # lower than 1.0 to avoid sharpening noise
+STREAM_DENOISE_FILTER = "median"              # off | median | gaussian | bilateral
+STREAM_MEDIAN_KERNEL = 3
+STREAM_GAUSSIAN_KERNEL = 3
+STREAM_BILATERAL_DIAMETER = 5
+STREAM_BILATERAL_SIGMA_COLOR = 30
+STREAM_BILATERAL_SIGMA_SPACE = 30
 
 # --- Stream toggles ---
 ENABLE_TCP = False
@@ -116,12 +131,76 @@ latest_frame = None
 camera_lock = threading.Lock()    # serialises all picamera2 access
 bracket_lock = threading.Lock()   # prevents overlapping bracket captures
 bracket_count = 0
+stream_denoise_warning_shown = False
 
 
 def signal_handler(sig, frame):
     global running
     print("\n[INFO] Shutting down...")
     running = False
+
+
+def get_camera_noise_reduction_control():
+    mode = CAMERA_NOISE_REDUCTION_MODE.strip().lower()
+
+    if libcamera_controls is not None:
+        try:
+            enum = libcamera_controls.draft.NoiseReductionModeEnum
+            return {
+                "off": enum.Off,
+                "fast": enum.Fast,
+                "high_quality": enum.HighQuality,
+            }.get(mode, enum.HighQuality)
+        except AttributeError:
+            pass
+
+    return {
+        "off": 0,
+        "fast": 1,
+        "high_quality": 2,
+    }.get(mode, 2)
+
+
+def odd_kernel_size(value, fallback):
+    size = int(value) if value else fallback
+    size = max(1, size)
+    if size % 2 == 0:
+        size += 1
+    return size
+
+
+def get_frame_duration_limits():
+    frame_duration_us = max(1, round(1_000_000 / TARGET_FPS))
+    return (frame_duration_us, frame_duration_us)
+
+
+def reduce_stream_noise(frame_bgr):
+    global stream_denoise_warning_shown
+
+    mode = STREAM_DENOISE_FILTER.strip().lower()
+
+    if mode == "off":
+        return frame_bgr
+    if mode == "median":
+        return cv2.medianBlur(
+            frame_bgr,
+            odd_kernel_size(STREAM_MEDIAN_KERNEL, 3),
+        )
+    if mode == "gaussian":
+        kernel = odd_kernel_size(STREAM_GAUSSIAN_KERNEL, 3)
+        return cv2.GaussianBlur(frame_bgr, (kernel, kernel), 0)
+    if mode == "bilateral":
+        return cv2.bilateralFilter(
+            frame_bgr,
+            max(1, int(STREAM_BILATERAL_DIAMETER)),
+            max(1, int(STREAM_BILATERAL_SIGMA_COLOR)),
+            max(1, int(STREAM_BILATERAL_SIGMA_SPACE)),
+        )
+
+    if not stream_denoise_warning_shown:
+        print(f"[CAM] Unknown STREAM_DENOISE_FILTER='{STREAM_DENOISE_FILTER}', disabling software denoise")
+        stream_denoise_warning_shown = True
+    return frame_bgr
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -133,13 +212,30 @@ def create_camera():
     # outputs BGR-ordered arrays in memory, which OpenCV expects natively.
     # Confirmed correct by existing test captures (no red/blue swap).
     # If colors look wrong on a different Pi/OS version, try "BGR888" here.
+    initial_controls = {
+        "FrameDurationLimits": get_frame_duration_limits(),
+        "NoiseReductionMode": get_camera_noise_reduction_control(),
+        "Sharpness": CAMERA_SHARPNESS,
+    }
+    supported_controls = getattr(cam, "camera_controls", {})
+    initial_controls = {
+        name: value for name, value in initial_controls.items()
+        if name in supported_controls
+    }
+
     config = cam.create_preview_configuration(
         main={"size": RESOLUTION, "format": "RGB888"}
     )
     cam.configure(config)
     cam.start()
+    for control_name, control_value in initial_controls.items():
+        try:
+            cam.set_controls({control_name: control_value})
+        except Exception as e:
+            print(f"[CAM] WARNING: failed to apply {control_name}={control_value}: {e}")
     time.sleep(2)  # let AWB + AE converge
     print(f"[CAM] Started at {RESOLUTION[0]}x{RESOLUTION[1]} @ {TARGET_FPS} fps target (RGB888)")
+    print(f"[CAM] Noise reduction: camera={CAMERA_NOISE_REDUCTION_MODE}, stream={STREAM_DENOISE_FILTER}")
     return cam
 
 
@@ -509,6 +605,8 @@ def capture_loop():
                     break
                 frame_bgr = picam2.capture_array()
 
+            frame_bgr = reduce_stream_noise(frame_bgr)
+
             with latest_frame_lock:
                 latest_frame = frame_bgr
 
@@ -535,6 +633,8 @@ def main():
     print(f"  Resolution:    {RESOLUTION[0]}x{RESOLUTION[1]}")
     print(f"  Target FPS:    {TARGET_FPS}")
     print(f"  Pixel format:  RGB888")
+    print(f"  Camera NR:     {CAMERA_NOISE_REDUCTION_MODE}")
+    print(f"  Stream filter: {STREAM_DENOISE_FILTER}")
     print(f"  TCP stream:    {'ON' if ENABLE_TCP else 'OFF'}"
           + (f"  → {SERVER_IP}:{SERVER_PORT}" if ENABLE_TCP else ""))
     print(f"  imagezmq:      {'ON' if ENABLE_IMAGEZMQ else 'OFF'}"
