@@ -33,6 +33,7 @@ Usage:
 import os
 import time
 import argparse
+import signal
 from datetime import datetime
 from collections import deque
 
@@ -61,6 +62,7 @@ SAVE_QUALITY = 95
 
 # Performance tracking
 FPS_WINDOW = 60                   # number of frames for rolling FPS average
+SIGINT_CONFIRM_WINDOW_S = 2.0     # require a second Ctrl+C within this window in GUI mode
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -234,6 +236,31 @@ def main():
     fullscreen = False
     save_count = 0
     last_log_time = time.monotonic()
+    stop_reason = None
+    sigint_count = 0
+    last_sigint_time = 0.0
+    running = True
+
+    def handle_signal(sig, frame):
+        nonlocal running, stop_reason, sigint_count, last_sigint_time
+
+        if sig == signal.SIGINT and not headless:
+            now = time.monotonic()
+            if now - last_sigint_time <= SIGINT_CONFIRM_WINDOW_S:
+                sigint_count += 1
+            else:
+                sigint_count = 1
+            last_sigint_time = now
+
+            if sigint_count < 2:
+                print(
+                    f"\n[WARN] SIGINT received; ignoring once. "
+                    f"Press Ctrl+C again within {SIGINT_CONFIRM_WINDOW_S:.0f}s to quit."
+                )
+                return
+
+        stop_reason = signal.Signals(sig).name
+        running = False
 
     if saving:
         os.makedirs(save_dir, exist_ok=True)
@@ -242,14 +269,19 @@ def main():
         cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
         cv2.resizeWindow(WINDOW_NAME, 1280, 720)
 
+    signal.signal(signal.SIGINT, handle_signal)
+    signal.signal(signal.SIGTERM, handle_signal)
+
     try:
-        while True:
+        while running:
             # Receive frame
             try:
                 name, jpg_buffer = image_hub.recv_jpg()
                 if req_rep:
                     image_hub.send_reply(b"OK")
             except Exception as e:
+                if not running:
+                    break
                 print(f"[WARN] Receive error: {e}")
                 time.sleep(0.5)
                 continue
@@ -290,6 +322,15 @@ def main():
                     display = draw_osd(display, stats, name,
                                        saving=saving, paused=paused)
                 cv2.imshow(WINDOW_NAME, display)
+                try:
+                    if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
+                        print("[INFO] Window closed")
+                        stop_reason = "window_closed"
+                        break
+                except cv2.error:
+                    print("[INFO] Window closed")
+                    stop_reason = "window_closed"
+                    break
 
             # Keyboard input
             if not headless:
@@ -297,6 +338,7 @@ def main():
 
                 if key == ord("q"):
                     print("[INFO] Quit requested")
+                    stop_reason = "quit_key"
                     break
 
                 elif key == ord("s"):
@@ -340,6 +382,7 @@ def main():
                       + (f" | Saved: {save_count}" if saving else ""))
 
     except KeyboardInterrupt:
+        stop_reason = "KeyboardInterrupt"
         print("\n[INFO] Interrupted")
 
     finally:
@@ -352,6 +395,8 @@ def main():
         print(f"[INFO] Total frames received: {stats.frame_count}")
         if save_count > 0:
             print(f"[INFO] Frames saved: {save_count} → {save_dir}")
+        if stop_reason:
+            print(f"[INFO] Stop reason: {stop_reason}")
         print("[INFO] Receiver stopped.")
 
 
