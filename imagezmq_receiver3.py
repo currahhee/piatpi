@@ -1,6 +1,5 @@
-#!/usr/bin/env python3
 """
-imagezmq Receiver v3 — MEF Pipeline Ready
+imagezmq Receiver v3 — MEF Pipeline
 ===========================================
 Connects to a Pi running pi_camera_stream3.py and displays the stream.
 Designed as the server-side entry point for the full pipeline:
