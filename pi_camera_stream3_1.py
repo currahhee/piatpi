@@ -62,6 +62,11 @@ except ImportError:
 # --- Network ---
 IMAGEZMQ_PORT = 5555
 IMAGEZMQ_REQ_REP = False          # False = PUB/SUB (recommended)
+IMAGEZMQ_RECEIVER_HOST = (
+    os.getenv("IMAGEZMQ_RECEIVER_HOST", "192.168.1.67").strip()
+    or "192.168.1.67"
+)
+# Only used in REQ/REP mode, where the Pi must connect to the receiver's IP.
 
 # --- Camera ---
 RESOLUTION = (1920, 1080)
@@ -244,21 +249,23 @@ def create_camera():
 def imagezmq_stream_loop():
     pi_name = socket.gethostname()
 
-    # imagezmq still uses a tcp:// transport string underneath, but that is
-    # the only network path in the active project pipeline.
-    # In PUB/SUB mode, ImageSender calls zmq_socket.bind(address).
-    # Must bind to a LOCAL address — the receiver connects to tcp://<pi-ip>:PORT.
-    bind_addr = f"tcp://*:{IMAGEZMQ_PORT}"
     mode_str = "PUB/SUB" if not IMAGEZMQ_REQ_REP else "REQ/REP"
+    if IMAGEZMQ_REQ_REP:
+        endpoint = f"tcp://{IMAGEZMQ_RECEIVER_HOST}:{IMAGEZMQ_PORT}"
+        endpoint_desc = f"connecting to {endpoint}"
+    else:
+        # In PUB/SUB mode, ImageSender binds locally and the receiver connects to us.
+        endpoint = f"tcp://*:{IMAGEZMQ_PORT}"
+        endpoint_desc = f"binding {endpoint}"
 
     while running:
         sender = None
         try:
             sender = imagezmq.ImageSender(
-                connect_to=bind_addr,
+                connect_to=endpoint,
                 REQ_REP=IMAGEZMQ_REQ_REP
             )
-            print(f"[ZMQ] Sender on port {IMAGEZMQ_PORT} ({mode_str})")
+            print(f"[ZMQ] Sender {endpoint_desc} ({mode_str})")
 
             frame_interval = 1.0 / TARGET_FPS
             last_sent = None
@@ -555,8 +562,13 @@ def main():
     print(f"  Pixel format:  RGB888")
     print(f"  Camera NR:     {CAMERA_NOISE_REDUCTION_MODE}")
     print(f"  Stream filter: {STREAM_DENOISE_FILTER}")
+    imagezmq_target = (
+        f"receiver {IMAGEZMQ_RECEIVER_HOST}:{IMAGEZMQ_PORT} (REQ/REP)"
+        if IMAGEZMQ_REQ_REP
+        else f"port {IMAGEZMQ_PORT} (PUB/SUB)"
+    )
     print(f"  imagezmq:      {'ON' if ENABLE_IMAGEZMQ else 'OFF'}"
-          + (f"  → port {IMAGEZMQ_PORT} ({'PUB/SUB' if not IMAGEZMQ_REQ_REP else 'REQ/REP'})" if ENABLE_IMAGEZMQ else ""))
+          + (f"  → {imagezmq_target}" if ENABLE_IMAGEZMQ else ""))
     print(f"  MEF bracket:   {'ON' if ENABLE_BRACKET else 'OFF'}"
           + (f"  → every {BRACKET_SET_INTERVAL}s, mode={BRACKET_MODE}" if ENABLE_BRACKET else ""))
     if ENABLE_BRACKET:
