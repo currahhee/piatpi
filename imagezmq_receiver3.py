@@ -217,12 +217,17 @@ def main():
     save_dir = args.save_dir
     req_rep = args.req_rep
 
-    # Connect to Pi
-    connect_str = f"tcp://{pi_ip}:{pi_port}"
-    print(f"[INFO] Connecting to {connect_str} ({'REQ/REP' if req_rep else 'PUB/SUB'})...")
+    # In PUB/SUB mode the hub connects to the Pi's bound address.
+    # In REQ/REP mode the hub must bind locally and the Pi connects to us.
+    if req_rep:
+        open_addr = f"tcp://*:{pi_port}"
+        print(f"[INFO] Binding REQ/REP on port {pi_port} (Pi must connect to us)...")
+    else:
+        open_addr = f"tcp://{pi_ip}:{pi_port}"
+        print(f"[INFO] Connecting to {open_addr} (PUB/SUB)...")
 
     image_hub = imagezmq.ImageHub(
-        open_port=connect_str,
+        open_port=open_addr,
         REQ_REP=req_rep
     )
 
@@ -315,12 +320,8 @@ def main():
                     print(f"[WARN] Failed to save frame: {filepath}")
 
             # Display
-            if not headless and not paused:
-                display = frame.copy()
-                if SHOW_OSD:
-                    display = draw_osd(display, stats, name,
-                                       saving=saving, paused=paused)
-                cv2.imshow(WINDOW_NAME, display)
+            if not headless:
+                # Check window even while paused so closing the window still exits
                 try:
                     if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) < 1:
                         print("[INFO] Window closed")
@@ -330,6 +331,13 @@ def main():
                     print("[INFO] Window closed")
                     stop_reason = "window_closed"
                     break
+
+                if not paused:
+                    display = frame.copy()
+                    if SHOW_OSD:
+                        display = draw_osd(display, stats, name,
+                                           saving=saving, paused=paused)
+                    cv2.imshow(WINDOW_NAME, display)
 
             # Keyboard input
             if not headless:

@@ -223,69 +223,19 @@ def create_camera():
     )
     cam.configure(config)
     cam.start()
-    for control_name, control_value in initial_controls.items():
-        try:
-            cam.set_controls({control_name: control_value})
-        except Exception as e:
-            print(f"[CAM] WARNING: failed to apply {control_name}={control_value}: {e}")
-    time.sleep(2)  # let AWB + AE converge
+    try:
+        for control_name, control_value in initial_controls.items():
+            try:
+                cam.set_controls({control_name: control_value})
+            except Exception as e:
+                print(f"[CAM] WARNING: failed to apply {control_name}={control_value}: {e}")
+        time.sleep(2)  # let AWB + AE converge
+    except Exception:
+        cam.stop()
+        raise
     print(f"[CAM] Started at {RESOLUTION[0]}x{RESOLUTION[1]} @ {TARGET_FPS} fps target (RGB888)")
     print(f"[CAM] Noise reduction: camera={CAMERA_NOISE_REDUCTION_MODE}, stream={STREAM_DENOISE_FILTER}")
     return cam
-
-
-# ═══════════════════════════════════════════════════════════════════════════
-# Legacy TCP Streaming (disabled)
-# ═══════════════════════════════════════════════════════════════════════════
-def tcp_stream_loop():
-    raise RuntimeError("Legacy raw TCP transport has been removed. Use imagezmq only.")
-    frame_interval = 1.0 / TARGET_FPS
-
-    while running:
-        sock = connect_to_server()
-        if sock is None:
-            if not running:
-                break
-            time.sleep(RECONNECT_DELAY)
-            continue
-
-        last_sent = None  # track last sent frame reference
-
-        try:
-            while running:
-                t0 = time.monotonic()
-
-                with latest_frame_lock:
-                    frame = latest_frame
-
-                if frame is None or frame is last_sent:
-                    # No frame yet, or same frame as last send — don't re-encode
-                    time.sleep(0.01)
-                    continue
-
-                result = send_frame_tcp(sock, frame)
-                if result is None:
-                    # imencode failed — don't spin
-                    time.sleep(0.01)
-                    continue
-                if result is False:
-                    print("[TCP] Send failed — connection lost")
-                    break
-
-                last_sent = frame
-
-                elapsed = time.monotonic() - t0
-                if elapsed < frame_interval:
-                    time.sleep(frame_interval - elapsed)
-
-        except OSError as e:
-            print(f"[TCP] Dropped: {e}")
-        finally:
-            sock.close()
-
-        if running:
-            print(f"[TCP] Reconnecting in {RECONNECT_DELAY}s...")
-            time.sleep(RECONNECT_DELAY)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -455,9 +405,11 @@ def capture_bracket_set(cam):
 
                 # Capture — capture_request() returns frame + metadata atomically
                 request = cam.capture_request()
-                frame = request.make_array("main")
-                actual_meta = request.get_metadata()
-                request.release()
+                try:
+                    frame = request.make_array("main")
+                    actual_meta = request.get_metadata()
+                finally:
+                    request.release()
 
                 # Save image
                 filename = f"{set_id}_{timestamp}_{label}_exp{shutter_us}us.jpg"
