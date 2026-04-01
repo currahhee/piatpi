@@ -1,8 +1,8 @@
 """
 imagezmq Receiver v3 — MEF Pipeline
 ===========================================
-Connects to a Pi running pi_camera_stream3.py and displays the stream.
-Designed as the server-side entry point for the full pipeline:
+Connects to a Pi running pi_camera_stream3_1.py and displays the stream.
+Designed as the laptop-side entry point for the full pipeline:
 
     Pi Camera → imagezmq → [this receiver] → MEF Fusion → Defect Detection
 
@@ -14,7 +14,7 @@ Features over v1:
   - CLI arguments for IP, port, headless mode
   - Graceful error handling on receive failures
 
-Install (on your PC):
+Install (on your laptop / PC):
     pip install imagezmq opencv-python pyzmq numpy
 
 Usage:

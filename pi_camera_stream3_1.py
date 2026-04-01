@@ -2,9 +2,8 @@
 """
 Raspberry Pi Camera Streamer v3.1 — MEF + imagezmq
 ====================================================
-Streams frames from a Pi Camera Module via:
-  1. TCP socket  — to a specific remote server
-  2. imagezmq    — viewable by any device on the local network (PUB/SUB)
+Streams frames from a Pi Camera Module to a gaming laptop over imagezmq.
+The gaming laptop is the only processing node in the active pipeline.
 
 Multi-Exposure Bracketing runs in a **separate thread**. A camera_lock
 ensures picamera2 is never accessed concurrently — the stream pauses
@@ -23,7 +22,7 @@ Inherited from v3 (bug-fixed):
   - Bracket thread with bracket_lock (no overlap)
   - Nested try/finally guaranteeing AE restore on any exception
   - Atomic capture_request() for frame + metadata
-  - TCP socket closed on failed connect
+  - imagezmq sender restarts after transport errors
   - Label/speed length mismatch warning
   - bracket_loop survives exceptions
 
@@ -32,7 +31,7 @@ Installation (on Raspberry Pi):
     sudo apt install -y python3-picamera2 python3-opencv python3-zmq
     pip3 install imagezmq
 
-On the receiving PC (viewer):
+On the receiving laptop (viewer / MEF host):
     pip install imagezmq opencv-python pyzmq numpy
 
 Usage:
@@ -42,7 +41,6 @@ Usage:
 import os
 import json
 import socket
-import struct
 import time
 import signal
 import threading
@@ -62,8 +60,6 @@ except ImportError:
 # ═══════════════════════════════════════════════════════════════════════════
 
 # --- Network ---
-SERVER_IP = "192.168.1.67"
-SERVER_PORT = 5000
 IMAGEZMQ_PORT = 5555
 IMAGEZMQ_REQ_REP = False          # False = PUB/SUB (recommended)
 
@@ -82,12 +78,11 @@ STREAM_BILATERAL_DIAMETER = 5
 STREAM_BILATERAL_SIGMA_COLOR = 30
 STREAM_BILATERAL_SIGMA_SPACE = 30
 
-# --- Stream toggles ---
-ENABLE_TCP = False
+# --- Streaming ---
 ENABLE_IMAGEZMQ = True
 IMAGEZMQ_SEND_JPG = True
 
-# --- TCP reconnection ---
+# Restart delay if the imagezmq transport errors out.
 RECONNECT_DELAY = 2               # seconds
 
 # --- Multi-Exposure Bracketing ---
@@ -240,39 +235,10 @@ def create_camera():
 
 
 # ═══════════════════════════════════════════════════════════════════════════
-# TCP Streaming
+# Legacy TCP Streaming (disabled)
 # ═══════════════════════════════════════════════════════════════════════════
-def connect_to_server():
-    sock = None
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.settimeout(5)
-        sock.connect((SERVER_IP, SERVER_PORT))
-        sock.settimeout(None)
-        print(f"[TCP] Connected to {SERVER_IP}:{SERVER_PORT}")
-        return sock
-    except OSError as e:
-        print(f"[TCP] Connection failed: {e}")
-        if sock is not None:
-            sock.close()
-        return None
-
-
-def send_frame_tcp(sock, frame_bgr):
-    ret, jpeg = cv2.imencode(
-        ".jpg", frame_bgr, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY]
-    )
-    if not ret:
-        return None  # signal encode failure (distinct from send failure)
-    data = jpeg.tobytes()
-    try:
-        sock.sendall(struct.pack(">L", len(data)) + data)
-        return True
-    except OSError:
-        return False
-
-
 def tcp_stream_loop():
+    raise RuntimeError("Legacy raw TCP transport has been removed. Use imagezmq only.")
     frame_interval = 1.0 / TARGET_FPS
 
     while running:
@@ -328,6 +294,8 @@ def tcp_stream_loop():
 def imagezmq_stream_loop():
     pi_name = socket.gethostname()
 
+    # imagezmq still uses a tcp:// transport string underneath, but that is
+    # the only network path in the active project pipeline.
     # In PUB/SUB mode, ImageSender calls zmq_socket.bind(address).
     # Must bind to a LOCAL address — the receiver connects to tcp://<pi-ip>:PORT.
     bind_addr = f"tcp://*:{IMAGEZMQ_PORT}"
@@ -635,8 +603,6 @@ def main():
     print(f"  Pixel format:  RGB888")
     print(f"  Camera NR:     {CAMERA_NOISE_REDUCTION_MODE}")
     print(f"  Stream filter: {STREAM_DENOISE_FILTER}")
-    print(f"  TCP stream:    {'ON' if ENABLE_TCP else 'OFF'}"
-          + (f"  → {SERVER_IP}:{SERVER_PORT}" if ENABLE_TCP else ""))
     print(f"  imagezmq:      {'ON' if ENABLE_IMAGEZMQ else 'OFF'}"
           + (f"  → port {IMAGEZMQ_PORT} ({'PUB/SUB' if not IMAGEZMQ_REQ_REP else 'REQ/REP'})" if ENABLE_IMAGEZMQ else ""))
     print(f"  MEF bracket:   {'ON' if ENABLE_BRACKET else 'OFF'}"
@@ -656,11 +622,6 @@ def main():
     try:
         if ENABLE_IMAGEZMQ:
             t = threading.Thread(target=imagezmq_stream_loop, daemon=True, name="zmq")
-            t.start()
-            threads.append(t)
-
-        if ENABLE_TCP:
-            t = threading.Thread(target=tcp_stream_loop, daemon=True, name="tcp")
             t.start()
             threads.append(t)
 

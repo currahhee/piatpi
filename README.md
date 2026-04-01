@@ -2,9 +2,22 @@
 
 Raspberry Pi camera streaming + MEF (Multi-Exposure Fusion) pipeline.
 
-Streams frames from a Pi Camera Module to a PC over the local network using imagezmq, with multi-exposure bracketing for defect detection.
+Streams frames from a Pi Camera Module to a gaming laptop over the local network using imagezmq, with multi-exposure bracketing for defect detection.
+
+Current pipeline:
+
+`Pi Camera -> imagezmq -> gaming laptop (RTX 5060) -> MEF model / downstream defect detection`
+
+There is no separate TCP server in the active pipeline. The only network path is `imagezmq` (ZeroMQ over `tcp://...` under the hood).
 
 ## Files
+
+Active entry points:
+
+- `pi_camera_stream3_1.py` is the current Pi sender.
+- `pi_camera_stream3_1_live.py` is the live-stream-only Pi launcher.
+- `imagezmq_receiver3.py` is the current laptop receiver / MEF host.
+- Older versioned scripts are kept as history, including early TCP experiments.
 
 ### Pi side (runs on Raspberry Pi)
 | File | Description |
@@ -15,7 +28,7 @@ Streams frames from a Pi Camera Module to a PC over the local network using imag
 | `pi_camera_stream3.py` | v3 — adds multi-exposure bracketing in a separate thread |
 | `pi_camera_stream3_1.py` | v3.1 — latest, with camera lock, cleaner bracket capture, metadata JSON sidecars |
 
-### PC side (runs on your machine)
+### Laptop / PC side (runs on your gaming laptop)
 | File | Description |
 |------|-------------|
 | `imagezmq_receiver.py` | v1 — basic receiver/viewer |
@@ -26,7 +39,7 @@ Streams frames from a Pi Camera Module to a PC over the local network using imag
 |------|-------------|
 | `v2tov3.txt` | Notes on what changed between v2 and v3 |
 
-## Setup (PC side)
+## Setup (Laptop / PC side)
 
 We use **uv** for dependency management. It replaces pip and venv in a single tool.
 
@@ -60,6 +73,12 @@ sudo apt update
 sudo apt install -y python3-picamera2 python3-opencv python3-zmq
 pip3 install imagezmq
 python3 pi_camera_stream3_1.py
+```
+
+For live streaming without local bracket captures on the Pi:
+
+```bash
+python3 pi_camera_stream3_1_live.py
 ```
 
 ## Keyboard controls (receiver v3)
