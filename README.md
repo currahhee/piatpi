@@ -16,23 +16,24 @@ Active entry points:
 
 - `pi_camera_stream3_1.py` is the current Pi sender.
 - `pi_camera_stream3_1_live.py` is the live-stream-only Pi launcher.
-- `imagezmq_receiver3.py` is the current laptop receiver / MEF host.
+- `imagezmq_receiver4.py` is the current laptop receiver / MEF host.
 - Older versioned scripts are kept as history, including early TCP experiments.
 
 ### Pi side (runs on Raspberry Pi)
 | File | Description |
 |------|-------------|
-| `pi_camera_stream.py` | v1 — basic TCP + imagezmq streaming |
-| `pi_camera_stream2.py` | v2 — improved streaming with numpy/imagezmq |
-| `pi_camera_stream2up.py` | v2 updated — minor fixes over v2 |
-| `pi_camera_stream3.py` | v3 — adds multi-exposure bracketing in a separate thread |
-| `pi_camera_stream3_1.py` | v3.1 — latest, with camera lock, cleaner bracket capture, metadata JSON sidecars |
+| `pi_camera_stream.py` | v1 - basic TCP + imagezmq streaming |
+| `pi_camera_stream2.py` | v2 - improved streaming with numpy/imagezmq |
+| `pi_camera_stream2up.py` | v2 updated - minor fixes over v2 |
+| `pi_camera_stream3.py` | v3 - adds multi-exposure bracketing in a separate thread |
+| `pi_camera_stream3_1.py` | v3.1 - latest, with camera lock, cleaner bracket capture, metadata JSON sidecars |
 
 ### Laptop / PC side (runs on your gaming laptop)
 | File | Description |
 |------|-------------|
-| `imagezmq_receiver.py` | v1 — basic receiver/viewer |
-| `imagezmq_receiver3.py` | v3 — FPS overlay, frame saving, keyboard controls, CLI args, MEF hook ready |
+| `imagezmq_receiver.py` | v1 - basic receiver/viewer |
+| `imagezmq_receiver3.py` | v3 - FPS overlay, frame saving, keyboard controls, CLI args, MEF hook ready |
+| `imagezmq_receiver4.py` | v4 - clean LAN-only PUB/SUB receiver, active laptop entry point |
 
 ### Other
 | File | Description |
@@ -64,7 +65,7 @@ uv sync
 .venv\Scripts\activate
 
 # Or just use uv run
-uv run python imagezmq_receiver3.py --ip <PI_IP>
+uv run python imagezmq_receiver4.py --ip <PI_IP>
 ```
 
 ### Pi side setup
@@ -81,7 +82,7 @@ For live streaming without local bracket captures on the Pi:
 python3 pi_camera_stream3_1_live.py
 ```
 
-## Keyboard controls (receiver v3)
+## Keyboard controls (receiver v4)
 | Key | Action |
 |-----|--------|
 | `q` | Quit |
