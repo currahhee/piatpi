@@ -163,7 +163,7 @@ def draw_osd(
     source_name: str,
     saving: bool,
     paused: bool,
-) -> np.ndarray:
+) -> None:
     height, width = frame.shape[:2]
     lines = [
         f"Source: {source_name}",
@@ -200,9 +200,6 @@ def draw_osd(
             cv2.LINE_AA,
         )
         y += 22
-
-    return frame
-
 
 def window_closed(window_name: str) -> bool:
     try:
@@ -287,7 +284,6 @@ def main() -> None:
             frame = process_frame(frame, name)
 
             if saving:
-                ensure_save_dir(save_dir)
                 if save_frame(frame, save_dir, saved_frames + 1):
                     saved_frames += 1
                 else:
