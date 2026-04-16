@@ -4,7 +4,23 @@ Raspberry Pi camera streaming + MEF (Multi-Exposure Fusion) pipeline.
 
 Streams frames from a Pi Camera Module to a gaming laptop over the local network using imagezmq, with multi-exposure bracketing for defect detection.
 
-Current pipeline:
+## Pipeline overview
+
+There are currently **two related pipelines** in this repo:
+
+### 1. Live stream pipeline
+
+`Pi Camera -> imagezmq -> gaming laptop receiver -> display / saving / future online inference`
+
+This is the real-time path used for monitoring and receiver-side viewing.
+
+### 2. MEF dataset pipeline
+
+`Pi Camera -> bracket capture on Pi -> saved bracket dataset -> copied to laptop -> MEF fusion backend -> fused output`
+
+This is the path used to take the bracketed images from the Pi 4B and feed them into your MEF model.
+
+Current high-level goal:
 
 `Pi Camera -> imagezmq -> gaming laptop (RTX 5060) -> MEF model / downstream defect detection`
 
@@ -98,6 +114,17 @@ The Pi already captures bracketed datasets locally in `~/mef_captures`:
 
 The laptop-side dataset runner reads those bracket sets and feeds them to a fusion backend.
 
+### End-to-end flow
+
+1. Run `pi_camera_stream3_1.py` on the Pi.
+2. Let the Pi save bracket sets into `~/mef_captures`.
+3. Copy `~/mef_captures` from the Pi to the laptop.
+4. Run `run_mef_dataset.py` on the laptop.
+5. `mef_pipeline.py` discovers each set and loads the three exposure images.
+6. The selected backend fuses the set:
+   OpenCV fallback now, MEF-Net adapter when your model is plugged in.
+7. The laptop writes the fused result into the output directory.
+
 ### 1. Copy bracket captures from the Pi to the laptop
 ```bash
 scp -r pi@<PI_IP>:~/mef_captures ./pi_dataset
@@ -134,6 +161,20 @@ The adapter receives:
 - `bracket_set`: metadata object with `set_id`, `timestamp`, labels, and exposures
 
 Use `prepare_model_inputs()` from `mef_pipeline.py` to convert those images into a normalized stack for your model.
+
+## What is implemented now
+
+- Pi-side bracket capture and metadata export
+- Live Pi-to-laptop streaming with `imagezmq`
+- Offline bracket-set discovery and loading on the laptop
+- Offline fusion runner with a pluggable backend interface
+- A MEF-Net adapter template for your real model integration
+
+## What is not implemented yet
+
+- Real-time MEF-Net inference directly from the live `imagezmq` stream
+- Downstream defect detection after fusion
+- Packaging MEF-Net dependencies and weights in this repo
 
 ## Keyboard controls (receiver v4)
 | Key | Action |
