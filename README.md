@@ -10,6 +10,8 @@ Current pipeline:
 
 There is no separate TCP server in the active pipeline. The only network path is `imagezmq` (ZeroMQ over `tcp://...` under the hood).
 
+For bracketed dataset capture, the Pi also saves local image sets plus a metadata JSON sidecar. Those saved sets are what the offline MEF pipeline consumes on the laptop.
+
 ## Files
 
 Active entry points:
@@ -39,6 +41,9 @@ Active entry points:
 | File | Description |
 |------|-------------|
 | `v2tov3.txt` | Notes on what changed between v2 and v3 |
+| `mef_pipeline.py` | Dataset loader + fusion backends for offline MEF processing |
+| `run_mef_dataset.py` | Laptop CLI to load Pi bracket sets and run fusion |
+| `mefnet_adapter_template.py` | Template adapter for plugging in a real MEF-Net model |
 
 ## Setup (Laptop / PC side)
 
@@ -81,6 +86,54 @@ For live streaming without local bracket captures on the Pi:
 ```bash
 python3 pi_camera_stream3_1_live.py
 ```
+
+## Dataset to MEF-Net pipeline
+
+The Pi already captures bracketed datasets locally in `~/mef_captures`:
+
+- `set0001_20260416_101010_under_exp5000us.jpg`
+- `set0001_20260416_101010_normal_exp33000us.jpg`
+- `set0001_20260416_101010_over_exp200000us.jpg`
+- `set0001_20260416_101010_meta.json`
+
+The laptop-side dataset runner reads those bracket sets and feeds them to a fusion backend.
+
+### 1. Copy bracket captures from the Pi to the laptop
+```bash
+scp -r pi@<PI_IP>:~/mef_captures ./pi_dataset
+```
+
+### 2. Inspect discovered bracket sets
+```bash
+uv run python run_mef_dataset.py --dataset-dir ./pi_dataset --list
+```
+
+### 3. Run the offline pipeline with the built-in OpenCV fallback
+```bash
+uv run python run_mef_dataset.py --dataset-dir ./pi_dataset --output-dir ./outputs/mef_fused
+```
+
+This is useful for validating that dataset discovery, loading, and output writing all work before you wire in the real model.
+
+### 4. Plug in your MEF-Net model
+Copy `mefnet_adapter_template.py`, replace the placeholder logic with your real MEF-Net import/checkpoint/inference code, then run:
+
+```bash
+uv run python run_mef_dataset.py \
+  --dataset-dir ./pi_dataset \
+  --output-dir ./outputs/mefnet \
+  --backend module \
+  --adapter ./my_mefnet_adapter.py \
+  --model-path ./weights/mefnet.pth \
+  --device cuda:0
+```
+
+The adapter receives:
+
+- `images`: list of BGR `numpy` arrays from a single bracket set
+- `bracket_set`: metadata object with `set_id`, `timestamp`, labels, and exposures
+
+Use `prepare_model_inputs()` from `mef_pipeline.py` to convert those images into a normalized stack for your model.
 
 ## Keyboard controls (receiver v4)
 | Key | Action |
